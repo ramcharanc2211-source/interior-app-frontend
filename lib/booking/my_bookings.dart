@@ -14,6 +14,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   List bookings = [];
   bool isLoading = true;
 
+  static const String baseUrl =
+      'https://interior-app-backend-1.onrender.com/api';
+
   @override
   void initState() {
     super.initState();
@@ -23,116 +26,200 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Future<void> fetchBookings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      String? token = prefs.getString('token');
+      final String? token = prefs.getString('token');
+
+      if (token == null || token.isEmpty) {
+        if (!mounted) return;
+
+        setState(() {
+          bookings = [];
+          isLoading = false;
+        });
+        return;
+      }
 
       final response = await http.get(
-        Uri.parse('http://127.0.0.1:5000/api/bookings'),
-        headers: {"Authorization": "Bearer $token"},
+        Uri.parse('$baseUrl/bookings'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
       );
 
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
+        final decodedData = json.decode(response.body);
+
         setState(() {
-          bookings = json.decode(response.body);
+          bookings = decodedData is List ? decodedData : [];
         });
+      } else {
+        debugPrint(
+          'Failed to fetch bookings: ${response.statusCode} ${response.body}',
+        );
       }
     } catch (e) {
-      print("Error: $e");
+      debugPrint('Error fetching bookings: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
-
-    setState(() {
-      isLoading = false;
-    });
   }
 
   Future<void> deleteBooking(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    String? token = prefs.getString('token');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? token = prefs.getString('token');
 
-    final response = await http.delete(
-      Uri.parse('http://127.0.0.1:5000/api/bookings/$id'),
-      headers: {"Authorization": "Bearer $token"},
+      if (token == null || token.isEmpty) {
+        return;
+      }
+
+      final response = await http.delete(
+        Uri.parse('$baseUrl/bookings/$id'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking deleted successfully')),
+        );
+
+        setState(() {
+          bookings.removeWhere((booking) => booking['_id']?.toString() == id);
+        });
+      } else {
+        debugPrint(
+          'Failed to delete booking: ${response.statusCode} ${response.body}',
+        );
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete booking')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error deleting booking: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to connect to the server')),
+      );
+    }
+  }
+
+  Future<void> confirmDelete(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm'),
+        content: const Text('Delete this booking?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
     );
 
-    if (response.statusCode == 200) {
-      fetchBookings(); // refresh list
+    if (confirmed == true) {
+      await deleteBooking(id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("My Bookings")),
+      appBar: AppBar(title: const Text('My Bookings')),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : bookings.isEmpty
-          ? const Center(child: Text("No bookings found"))
-          : ListView.builder(
-              itemCount: bookings.length,
-              itemBuilder: (context, index) {
-                var b = bookings[index];
+          ? const Center(child: Text('No bookings found'))
+          : RefreshIndicator(
+              onRefresh: fetchBookings,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: bookings.length,
+                itemBuilder: (context, index) {
+                  final b = bookings[index];
+                  final designer = b['designer'] is Map
+                      ? b['designer'] as Map
+                      : {};
 
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 4,
-                  child: ListTile(
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        b['designer']?['image'] ??
-                            "https://via.placeholder.com/100",
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => const Icon(Icons.image),
+                  final imageUrl = designer['image']?.toString() ?? '';
+                  final bookingId = b['_id']?.toString() ?? '';
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
+                    child: ListTile(
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: imageUrl.isNotEmpty
+                            ? Image.network(
+                                imageUrl,
+                                width: 60,
+                                height: 60,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const SizedBox(
+                                    width: 60,
+                                    height: 60,
+                                    child: Icon(Icons.image),
+                                  );
+                                },
+                              )
+                            : const SizedBox(
+                                width: 60,
+                                height: 60,
+                                child: Icon(Icons.image),
+                              ),
+                      ),
+                      title: Text(
+                        designer['name']?.toString() ?? 'No Name',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(designer['specialty']?.toString() ?? ''),
+                          const SizedBox(height: 4),
+                          Text('📅 ${b['date'] ?? ''}'),
+                          Text('⏰ ${b['time'] ?? ''}'),
+                        ],
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: bookingId.isEmpty
+                            ? null
+                            : () => confirmDelete(bookingId),
                       ),
                     ),
-                    title: Text(
-                      b['designer']?['name'] ?? "No Name",
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(b['designer']?['specialty'] ?? ""),
-                        const SizedBox(height: 4),
-                        Text("📅 ${b['date']}"),
-                        Text("⏰ ${b['time'] ?? ""}"),
-                      ],
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text("Confirm"),
-                            content: const Text("Delete this booking?"),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text("No"),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  deleteBooking(b['_id']);
-                                  Navigator.pop(context);
-                                },
-                                child: const Text("Yes"),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
     );
   }

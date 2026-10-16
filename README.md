@@ -1,110 +1,17 @@
-# 🏠 Interior Design Consultation & Booking App
+# frontend
 
-> **A modern full-stack web application that makes interior design consultation booking simple, fast, and seamless.**
+A new Flutter project.
 
-🌐 **Live Demo:** [View Live Application](https://ramcharanc2211-source.github.io/interior-app-frontend/)
-💻 **GitHub:** [View Source Code](https://github.com/ramcharanc2211-source/interior-app-frontend)
+## Getting Started
 
----
+This project is a starting point for a Flutter application.
 
-## ✨ Features
+A few resources to get you started if this is your first Flutter project:
 
-| Feature                   | Description                                     |
-| ------------------------- | ----------------------------------------------- |
-| 🔐 **Authentication**     | Secure Signup & Login with Firebase             |
-| 🎨 **Designer Discovery** | Browse interior designers and services          |
-| 👤 **Designer Profiles**  | View experience, ratings, pricing & services    |
-| 📅 **Smart Booking**      | Interactive calendar-based consultation booking |
-| ⏰ **Time Slots**          | View available and booked consultation slots    |
-| 🚫 **Booking Protection** | Prevents duplicate bookings                     |
-| 🔗 **REST API**           | Flutter ↔ Backend communication                 |
-| ☁️ **Cloud Database**     | MongoDB Atlas for persistent data               |
-| 🚀 **Deployment**         | GitHub Pages + Render deployment                |
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
 
----
-
-## 🛠️ Tech Stack
-
-**Frontend**
-`Flutter` • `Dart` • `Flutter Web`
-
-**Backend**
-`Node.js` • `Express.js` • `JavaScript` • `REST API`
-
-**Database & Authentication**
-`MongoDB Atlas` • `Firebase Authentication`
-
-**Deployment & DevOps**
-`Git` • `GitHub` • `GitHub Actions` • `GitHub Pages` • `Render`
-
----
-
-## 🏗️ Architecture
-
-```text
-┌──────────────────────────┐
-│       Flutter Web        │
-│     User Interface       │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│       REST API           │
-│    HTTP / JSON           │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│    Node.js + Express     │
-│      Backend Server      │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│      MongoDB Atlas       │
-│      Data Storage        │
-└──────────────────────────┘
-
-        🔐 Firebase
-     Authentication
-```
-
----
-
-## 💡 Key Skills Demonstrated
-
-**Full-Stack Development** • **Flutter Development** • **REST APIs** •
-**Firebase Authentication** • **MongoDB** • **Responsive UI/UX** •
-**API Integration** • **Booking Logic** • **Git & GitHub** •
-**CI/CD** • **Cloud Deployment**
-
----
-
-## 🚀 Deployment
-
-| Component         | Platform      |
-| ----------------- | ------------- |
-| 🌐 Frontend       | GitHub Pages  |
-| ⚙️ Backend        | Render        |
-| 🗄️ Database      | MongoDB Atlas |
-| 🔐 Authentication | Firebase      |
-
----
-
-## 📚 What I Learned
-
-Built and deployed a real-world full-stack application covering **authentication, API integration, database management, booking logic, responsive UI, version control, CI/CD, and cloud deployment**.
-
----
-
-## 👨‍💻 Developer
-
-### **Ram Charan**
-
-**B.Tech — Artificial Intelligence & Machine Learning**
-
-`Flutter` `Dart` `Node.js` `Express.js` `MongoDB` `Firebase` `Git` `GitHub Actions`
-
----
-
-⭐ **If you find this project interesting, consider giving it a star!**
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

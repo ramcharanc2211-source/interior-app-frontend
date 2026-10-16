@@ -40,16 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final response = await http
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}/api/auth/login'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode({'email': email, 'password': password}),
-          )
-          .timeout(const Duration(seconds: 20));
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/api/auth/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'email': email, 'password': password}),
+      );
 
       print('LOGIN STATUS: ${response.statusCode}');
       print('LOGIN RESPONSE: ${response.body}');
@@ -77,7 +75,6 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         final prefs = await SharedPreferences.getInstance();
-
         await prefs.setString('token', token.toString());
 
         if (!mounted) return;
@@ -128,9 +125,8 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // STEP 1: Sign in with Google using Firebase
+      // Step 1: Sign in with Google using Firebase.
       final googleProvider = GoogleAuthProvider();
-
       googleProvider.setCustomParameters({'prompt': 'select_account'});
 
       final userCredential = await FirebaseAuth.instance.signInWithPopup(
@@ -145,24 +141,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
       print('GOOGLE USER: ${user.email}');
 
-      // STEP 2: Get Firebase ID token
+      // Step 2: Get Firebase ID token.
       final firebaseToken = await user.getIdToken();
 
       if (firebaseToken == null || firebaseToken.isEmpty) {
         throw Exception('Firebase ID token was not received');
       }
 
-      // STEP 3: Send Firebase ID token to our backend
-      final response = await http
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}/api/auth/google'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode({'idToken': firebaseToken}),
-          )
-          .timeout(const Duration(seconds: 20));
+      // Step 3: Send Firebase ID token to the backend.
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/api/auth/google'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'idToken': firebaseToken}),
+      );
 
       print('GOOGLE BACKEND STATUS: ${response.statusCode}');
       print('GOOGLE BACKEND RESPONSE: ${response.body}');
@@ -177,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
         data = {};
       }
 
-      // STEP 4: Backend successfully created our application JWT
+      // Step 4: Check the backend response.
       if (response.statusCode == 200) {
         final token = data is Map ? data['token'] : null;
 
@@ -185,9 +179,8 @@ class _LoginScreenState extends State<LoginScreen> {
           throw Exception('Backend JWT token was not received');
         }
 
-        // STEP 5: Save our backend JWT
+        // Step 5: Save the backend JWT.
         final prefs = await SharedPreferences.getInstance();
-
         await prefs.setString('token', token.toString());
 
         if (!mounted) return;
@@ -196,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(content: Text('Google login successful')),
         );
 
-        // STEP 6: Go to Designer List
+        // Step 6: Navigate to the designer list.
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const DesignerListScreen()),

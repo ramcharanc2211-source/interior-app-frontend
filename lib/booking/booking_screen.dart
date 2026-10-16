@@ -15,22 +15,10 @@ class BookingScreen extends StatefulWidget {
 }
 
 class _BookingScreenState extends State<BookingScreen> {
-  // ============================================================
-  // API
-  // ============================================================
+  static const String baseUrl = 'https://interior-app-backend-1.onrender.com';
 
-  static const String baseUrl = 'http://127.0.0.1:5000';
-
-  // ============================================================
-  // DATE
-  // ============================================================
-
-  DateTime selectedDate = DateTime.now();
-  DateTime focusedDay = DateTime.now();
-
-  // ============================================================
-  // TIME
-  // ============================================================
+  late DateTime selectedDate;
+  late DateTime focusedDay;
 
   String selectedTime = '';
 
@@ -39,9 +27,7 @@ class _BookingScreenState extends State<BookingScreen> {
   bool isLoadingSlots = false;
   bool isBooking = false;
 
-  // ============================================================
-  // TIME SLOTS
-  // ============================================================
+  int _requestId = 0;
 
   final List<String> timeSlots = [
     '09:00 AM',
@@ -57,32 +43,23 @@ class _BookingScreenState extends State<BookingScreen> {
     '07:00 PM',
   ];
 
-  // ============================================================
-  // INIT
-  // ============================================================
-
   @override
   void initState() {
     super.initState();
+
+    selectedDate = DateUtils.dateOnly(DateTime.now());
+    focusedDay = selectedDate;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       fetchBookedSlots();
     });
   }
 
-  // ============================================================
-  // FORMAT DATE
-  // ============================================================
-
   String formatDate(DateTime date) {
     return '${date.year}-'
         '${date.month.toString().padLeft(2, '0')}-'
         '${date.day.toString().padLeft(2, '0')}';
   }
-
-  // ============================================================
-  // DESIGNER IMAGE
-  // ============================================================
 
   String getDesignerImage() {
     final image = widget.designer['image'];
@@ -95,10 +72,6 @@ class _BookingScreenState extends State<BookingScreen> {
         'photo-1618221195710-dd6b41faaea6?w=1200';
   }
 
-  // ============================================================
-  // DESIGNER NAME
-  // ============================================================
-
   String getDesignerName() {
     final name = widget.designer['name'];
 
@@ -108,10 +81,6 @@ class _BookingScreenState extends State<BookingScreen> {
 
     return 'Interior Designer';
   }
-
-  // ============================================================
-  // DESIGNER SPECIALTY
-  // ============================================================
 
   String getSpecialty() {
     final specialty = widget.designer['specialty'];
@@ -123,12 +92,46 @@ class _BookingScreenState extends State<BookingScreen> {
     return 'Interior Design';
   }
 
-  // ============================================================
-  // FETCH BOOKED SLOTS
-  // ============================================================
+  bool isPastDate(DateTime date) {
+    return DateUtils.dateOnly(
+      date,
+    ).isBefore(DateUtils.dateOnly(DateTime.now()));
+  }
+
+  bool isPastTimeSlot(String time) {
+    if (!DateUtils.isSameDay(selectedDate, DateTime.now())) {
+      return false;
+    }
+
+    final parts = time.split(' ');
+    final timeParts = parts[0].split(':');
+
+    int hour = int.parse(timeParts[0]);
+    final minute = int.parse(timeParts[1]);
+    final period = parts[1];
+
+    if (period == 'PM' && hour != 12) {
+      hour += 12;
+    } else if (period == 'AM' && hour == 12) {
+      hour = 0;
+    }
+
+    final slotDateTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      hour,
+      minute,
+    );
+
+    return !slotDateTime.isAfter(DateTime.now());
+  }
 
   Future<void> fetchBookedSlots() async {
     if (!mounted) return;
+
+    final requestId = ++_requestId;
+    final requestedDate = formatDate(selectedDate);
 
     setState(() {
       isLoadingSlots = true;
@@ -136,57 +139,32 @@ class _BookingScreenState extends State<BookingScreen> {
     });
 
     try {
-      // ----------------------------------------------------------
-      // GET SAVED JWT
-      // ----------------------------------------------------------
-
       final prefs = await SharedPreferences.getInstance();
-
       final token = prefs.getString('token');
 
       if (token == null || token.isEmpty) {
-        debugPrint('JWT token not found');
-
-        if (mounted) {
+        if (mounted && requestId == _requestId) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Please login again.')));
         }
-
         return;
       }
-
-      // ----------------------------------------------------------
-      // DESIGNER ID
-      // ----------------------------------------------------------
 
       final designerId = widget.designer['_id'];
 
       if (designerId == null || designerId.toString().isEmpty) {
-        debugPrint('Designer ID not found');
-
-        if (mounted) {
+        if (mounted && requestId == _requestId) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Designer information is missing.')),
           );
         }
-
         return;
       }
 
-      // ----------------------------------------------------------
-      // DATE
-      // ----------------------------------------------------------
-
-      final formattedDate = formatDate(selectedDate);
-
-      // ----------------------------------------------------------
-      // REQUEST
-      // ----------------------------------------------------------
-
       final uri = Uri.parse('$baseUrl/api/bookings/by-date').replace(
         queryParameters: {
-          'date': formattedDate,
+          'date': requestedDate,
           'designerId': designerId.toString(),
         },
       );
@@ -196,57 +174,38 @@ class _BookingScreenState extends State<BookingScreen> {
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      debugPrint('Booked slots response: ${response.statusCode}');
-
-      // ----------------------------------------------------------
-      // SUCCESS
-      // ----------------------------------------------------------
+      if (!mounted || requestId != _requestId) return;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
 
         if (data is List) {
-          final slots = data
-              .where((booking) => booking is Map && booking['time'] != null)
-              .map<String>((booking) => booking['time'].toString())
-              .toList();
-
-          if (mounted) {
-            setState(() {
-              bookedSlots = slots;
-            });
-          }
+          setState(() {
+            bookedSlots = data
+                .where((booking) => booking is Map && booking['time'] != null)
+                .map<String>((booking) => booking['time'].toString())
+                .toList();
+          });
+        } else {
+          setState(() {
+            bookedSlots = [];
+          });
         }
-      }
-      // ----------------------------------------------------------
-      // UNAUTHORIZED
-      // ----------------------------------------------------------
-      else if (response.statusCode == 401) {
-        debugPrint('JWT expired or invalid');
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Your session expired. Please login again.'),
-            ),
-          );
-        }
-      }
-      // ----------------------------------------------------------
-      // OTHER ERROR
-      // ----------------------------------------------------------
-      else {
-        debugPrint(
-          'Failed to fetch booked slots: '
-          '${response.statusCode}',
+      } else if (response.statusCode == 401) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your session expired. Please login again.'),
+          ),
         );
-
-        debugPrint(response.body);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load booked slots.')),
+        );
       }
     } catch (e) {
       debugPrint('Fetch booked slots error: $e');
 
-      if (mounted) {
+      if (mounted && requestId == _requestId) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -256,17 +215,13 @@ class _BookingScreenState extends State<BookingScreen> {
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && requestId == _requestId) {
         setState(() {
           isLoadingSlots = false;
         });
       }
     }
   }
-
-  // ============================================================
-  // YEAR SELECTOR
-  // ============================================================
 
   Future<void> selectYear() async {
     final currentYear = DateTime.now().year;
@@ -296,14 +251,11 @@ class _BookingScreenState extends State<BookingScreen> {
               ),
               itemBuilder: (context, index) {
                 final year = currentYear + index;
-
                 final isSelected = focusedDay.year == year;
 
                 return InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () {
-                    Navigator.pop(context, year);
-                  },
+                  onTap: () => Navigator.pop(context, year),
                   child: Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
@@ -332,17 +284,13 @@ class _BookingScreenState extends State<BookingScreen> {
       },
     );
 
-    if (selectedYear == null || !mounted) {
-      return;
-    }
+    if (selectedYear == null || !mounted) return;
 
-    final now = DateTime.now();
+    final now = DateUtils.dateOnly(DateTime.now());
+    var newDate = DateTime(selectedYear, focusedDay.month, 1);
 
-    DateTime newDate = DateTime(selectedYear, focusedDay.month, 1);
-
-    if (selectedYear == now.year &&
-        newDate.isBefore(DateTime(now.year, now.month, now.day))) {
-      newDate = DateTime(now.year, now.month, now.day);
+    if (newDate.isBefore(now)) {
+      newDate = now;
     }
 
     setState(() {
@@ -354,10 +302,6 @@ class _BookingScreenState extends State<BookingScreen> {
     fetchBookedSlots();
   }
 
-  // ============================================================
-  // CHANGE MONTH
-  // ============================================================
-
   void changeMonth(int amount) {
     final newFocusedDay = DateTime(
       focusedDay.year,
@@ -365,57 +309,48 @@ class _BookingScreenState extends State<BookingScreen> {
       1,
     );
 
-    final firstAllowedDate = DateTime(
+    final firstAllowedMonth = DateTime(
       DateTime.now().year,
       DateTime.now().month,
-      DateTime.now().day,
-    );
-
-    final firstAllowedMonth = DateTime(
-      firstAllowedDate.year,
-      firstAllowedDate.month,
       1,
     );
 
-    if (newFocusedDay.isBefore(firstAllowedMonth)) {
-      return;
-    }
-
-    if (newFocusedDay.year > 2035) {
-      return;
-    }
+    if (newFocusedDay.isBefore(firstAllowedMonth)) return;
+    if (newFocusedDay.year > 2035) return;
 
     setState(() {
       focusedDay = newFocusedDay;
     });
   }
 
-  // ============================================================
-  // BOOK NOW
-  // ============================================================
-
   Future<void> bookNow() async {
-    // ----------------------------------------------------------
-    // TIME VALIDATION
-    // ----------------------------------------------------------
+    if (isBooking) return;
+
+    if (isPastDate(selectedDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a valid future date.')),
+      );
+      return;
+    }
 
     if (selectedTime.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a time slot.')),
       );
-
       return;
     }
 
-    // ----------------------------------------------------------
-    // LOCAL BOOKED SLOT CHECK
-    // ----------------------------------------------------------
+    if (isPastTimeSlot(selectedTime)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a future time slot.')),
+      );
+      return;
+    }
 
     if (bookedSlots.contains(selectedTime)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('This time slot is already booked.')),
       );
-
       return;
     }
 
@@ -424,12 +359,7 @@ class _BookingScreenState extends State<BookingScreen> {
     });
 
     try {
-      // --------------------------------------------------------
-      // GET JWT
-      // --------------------------------------------------------
-
       final prefs = await SharedPreferences.getInstance();
-
       final token = prefs.getString('token');
 
       if (token == null || token.isEmpty) {
@@ -440,13 +370,8 @@ class _BookingScreenState extends State<BookingScreen> {
             ),
           );
         }
-
         return;
       }
-
-      // --------------------------------------------------------
-      // DESIGNER ID
-      // --------------------------------------------------------
 
       final designerId = widget.designer['_id'];
 
@@ -456,48 +381,30 @@ class _BookingScreenState extends State<BookingScreen> {
             const SnackBar(content: Text('Designer information is missing.')),
           );
         }
-
         return;
       }
 
-      // --------------------------------------------------------
-      // CREATE BOOKING
-      // --------------------------------------------------------
-
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/api/bookings'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({
-              'designerId': designerId.toString(),
-              'date': formatDate(selectedDate),
-              'time': selectedTime,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/bookings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'designerId': designerId.toString(),
+          'date': formatDate(selectedDate),
+          'time': selectedTime,
+        }),
+      );
 
       debugPrint('Booking response: ${response.statusCode}');
-
       debugPrint('Booking body: ${response.body}');
 
       if (!mounted) return;
 
-      // --------------------------------------------------------
-      // SUCCESS
-      // --------------------------------------------------------
-
       if (response.statusCode == 201) {
         showBookingSuccess();
-      }
-      // --------------------------------------------------------
-      // SLOT ALREADY BOOKED
-      //
-      // Backend currently returns 400.
-      // --------------------------------------------------------
-      else if (response.statusCode == 400) {
+      } else if (response.statusCode == 400 || response.statusCode == 409) {
         String message = 'This slot is already booked.';
 
         try {
@@ -513,21 +420,13 @@ class _BookingScreenState extends State<BookingScreen> {
         ).showSnackBar(SnackBar(content: Text(message)));
 
         await fetchBookedSlots();
-      }
-      // --------------------------------------------------------
-      // UNAUTHORIZED
-      // --------------------------------------------------------
-      else if (response.statusCode == 401) {
+      } else if (response.statusCode == 401) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Your session expired. Please login again.'),
           ),
         );
-      }
-      // --------------------------------------------------------
-      // OTHER ERROR
-      // --------------------------------------------------------
-      else {
+      } else {
         String message = 'Booking failed. Please try again.';
 
         try {
@@ -559,15 +458,11 @@ class _BookingScreenState extends State<BookingScreen> {
     }
   }
 
-  // ============================================================
-  // SUCCESS DIALOG
-  // ============================================================
-
   void showBookingSuccess() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
@@ -589,27 +484,20 @@ class _BookingScreenState extends State<BookingScreen> {
                   size: 58,
                 ),
               ),
-
               const SizedBox(height: 20),
-
               const Text(
                 'Booking Confirmed!',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-
               const SizedBox(height: 12),
-
               Text(
-                'Your consultation with '
-                '${getDesignerName()} '
+                'Your consultation with ${getDesignerName()} '
                 'has been successfully booked.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade700, height: 1.5),
               ),
-
               const SizedBox(height: 20),
-
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -633,9 +521,7 @@ class _BookingScreenState extends State<BookingScreen> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 12),
-
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -653,15 +539,13 @@ class _BookingScreenState extends State<BookingScreen> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 22),
-
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(dialogContext);
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
@@ -684,18 +568,29 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
+  Widget _summaryRow(IconData icon, String title, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: const Color(0xFF6A11CB)),
+        const SizedBox(width: 10),
+        Text('$title:', style: TextStyle(color: Colors.grey.shade600)),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
-
-      // ==========================================================
-      // APP BAR
-      // ==========================================================
       appBar: AppBar(
         elevation: 0,
         centerTitle: true,
@@ -712,19 +607,13 @@ class _BookingScreenState extends State<BookingScreen> {
           ),
         ),
       ),
-
-      // ==========================================================
-      // BODY
-      // ==========================================================
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ======================================================
-            // DESIGNER CARD
-            // ======================================================
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
@@ -762,9 +651,7 @@ class _BookingScreenState extends State<BookingScreen> {
                       },
                     ),
                   ),
-
                   const SizedBox(width: 15),
-
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -779,9 +666,7 @@ class _BookingScreenState extends State<BookingScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-
                         const SizedBox(height: 6),
-
                         Text(
                           getSpecialty(),
                           maxLines: 2,
@@ -791,9 +676,7 @@ class _BookingScreenState extends State<BookingScreen> {
                             fontSize: 15,
                           ),
                         ),
-
                         const SizedBox(height: 9),
-
                         const Row(
                           children: [
                             Icon(
@@ -817,29 +700,17 @@ class _BookingScreenState extends State<BookingScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 28),
-
-            // ======================================================
-            // SELECT DATE
-            // ======================================================
             const Text(
               'Select Date',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 6),
-
             Text(
               'Choose a convenient date for your consultation.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
             ),
-
             const SizedBox(height: 16),
-
-            // ======================================================
-            // CALENDAR
-            // ======================================================
             Container(
               padding: const EdgeInsets.fromLTRB(10, 10, 10, 15),
               decoration: BoxDecoration(
@@ -859,12 +730,9 @@ class _BookingScreenState extends State<BookingScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       IconButton(
-                        onPressed: () {
-                          changeMonth(-1);
-                        },
+                        onPressed: () => changeMonth(-1),
                         icon: const Icon(Icons.chevron_left_rounded),
                       ),
-
                       InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: selectYear,
@@ -884,9 +752,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                 color: Color(0xFF6A11CB),
                                 size: 20,
                               ),
-
                               const SizedBox(width: 7),
-
                               Text(
                                 focusedDay.year.toString(),
                                 style: const TextStyle(
@@ -895,9 +761,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                   fontSize: 16,
                                 ),
                               ),
-
                               const SizedBox(width: 3),
-
                               const Icon(
                                 Icons.keyboard_arrow_down_rounded,
                                 color: Color(0xFF6A11CB),
@@ -906,21 +770,16 @@ class _BookingScreenState extends State<BookingScreen> {
                           ),
                         ),
                       ),
-
                       IconButton(
-                        onPressed: () {
-                          changeMonth(1);
-                        },
+                        onPressed: () => changeMonth(1),
                         icon: const Icon(Icons.chevron_right_rounded),
                       ),
                     ],
                   ),
-
                   TableCalendar(
-                    firstDay: DateTime.now(),
-                    lastDay: DateTime.utc(2035, 12, 31),
+                    firstDay: DateUtils.dateOnly(DateTime.now()),
+                    lastDay: DateTime(2035, 12, 31),
                     focusedDay: focusedDay,
-
                     headerStyle: const HeaderStyle(
                       titleCentered: true,
                       formatButtonVisible: false,
@@ -931,40 +790,34 @@ class _BookingScreenState extends State<BookingScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-
                     calendarStyle: CalendarStyle(
                       outsideDaysVisible: false,
-
                       todayDecoration: BoxDecoration(
                         color: Colors.orange.shade400,
                         shape: BoxShape.circle,
                       ),
-
                       selectedDecoration: const BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
                         ),
                         shape: BoxShape.circle,
                       ),
-
                       selectedTextStyle: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
-
                       todayTextStyle: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
-
                       weekendTextStyle: TextStyle(color: Colors.grey.shade700),
                     ),
-
                     selectedDayPredicate: (day) {
                       return isSameDay(selectedDate, day);
                     },
-
                     onDaySelected: (selectedDay, newFocusedDay) {
+                      if (isPastDate(selectedDay)) return;
+
                       setState(() {
                         selectedDate = selectedDay;
                         focusedDay = newFocusedDay;
@@ -973,7 +826,6 @@ class _BookingScreenState extends State<BookingScreen> {
 
                       fetchBookedSlots();
                     },
-
                     onPageChanged: (newFocusedDay) {
                       setState(() {
                         focusedDay = newFocusedDay;
@@ -983,12 +835,7 @@ class _BookingScreenState extends State<BookingScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 25),
-
-            // ======================================================
-            // SELECTED DATE
-            // ======================================================
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -1017,177 +864,168 @@ class _BookingScreenState extends State<BookingScreen> {
                       color: Colors.white,
                     ),
                   ),
-
                   const SizedBox(width: 12),
-
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Selected Date',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 13,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selected Date',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
                         ),
-                      ),
-
-                      const SizedBox(height: 3),
-
-                      Text(
-                        formatDate(selectedDate),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 17,
+                        const SizedBox(height: 3),
+                        Text(
+                          formatDate(selectedDate),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 17,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-
             const SizedBox(height: 30),
-
-            // ======================================================
-            // TIME TITLE
-            // ======================================================
             const Text(
               'Choose Time',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 6),
-
             Text(
               'Available consultation time slots',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
             ),
-
             const SizedBox(height: 18),
-
-            // ======================================================
-            // LOADING
-            // ======================================================
             if (isLoadingSlots)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(25),
                   child: CircularProgressIndicator(color: Color(0xFF6A11CB)),
                 ),
-              ),
+              )
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth < 360
+                      ? 2
+                      : constraints.maxWidth < 600
+                      ? 3
+                      : 4;
 
-            // ======================================================
-            // TIME SLOTS
-            // ======================================================
-            if (!isLoadingSlots)
-              Wrap(
-                spacing: 10,
-                runSpacing: 12,
-                children: timeSlots.map((time) {
-                  final isBooked = bookedSlots.contains(time);
-
-                  final isSelected = selectedTime == time;
-
-                  return GestureDetector(
-                    onTap: isBooked
-                        ? null
-                        : () {
-                            setState(() {
-                              selectedTime = time;
-                            });
-                          },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      width: 115,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 14,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: isSelected
-                            ? const LinearGradient(
-                                colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
-                              )
-                            : null,
-                        color: isBooked
-                            ? Colors.grey.shade300
-                            : isSelected
-                            ? null
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(
-                          color: isBooked
-                              ? Colors.grey.shade400
-                              : isSelected
-                              ? Colors.transparent
-                              : Colors.grey.shade200,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 6,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            isBooked
-                                ? Icons.block_rounded
-                                : Icons.access_time_rounded,
-                            size: 20,
-                            color: isBooked
-                                ? Colors.grey.shade600
-                                : isSelected
-                                ? Colors.white
-                                : const Color(0xFF6A11CB),
-                          ),
-
-                          const SizedBox(height: 7),
-
-                          Text(
-                            time,
-                            style: TextStyle(
-                              color: isBooked
-                                  ? Colors.grey.shade600
-                                  : isSelected
-                                  ? Colors.white
-                                  : Colors.black87,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-
-                          const SizedBox(height: 3),
-
-                          Text(
-                            isBooked
-                                ? 'Booked'
-                                : isSelected
-                                ? 'Selected'
-                                : 'Available',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isBooked
-                                  ? Colors.grey.shade600
-                                  : isSelected
-                                  ? Colors.white70
-                                  : Colors.green,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: timeSlots.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.0,
                     ),
+                    itemBuilder: (context, index) {
+                      final time = timeSlots[index];
+                      final isBooked = bookedSlots.contains(time);
+                      final isPast = isPastTimeSlot(time);
+                      final isUnavailable = isBooked || isPast;
+                      final isSelected = selectedTime == time;
+
+                      return GestureDetector(
+                        onTap: isUnavailable
+                            ? null
+                            : () {
+                                setState(() {
+                                  selectedTime = time;
+                                });
+                              },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            gradient: isSelected
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF6A11CB),
+                                      Color(0xFF2575FC),
+                                    ],
+                                  )
+                                : null,
+                            color: isUnavailable
+                                ? Colors.grey.shade200
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.transparent
+                                  : Colors.grey.shade300,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 5,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                isUnavailable
+                                    ? Icons.block_rounded
+                                    : Icons.access_time_rounded,
+                                color: isUnavailable
+                                    ? Colors.grey
+                                    : isSelected
+                                    ? Colors.white
+                                    : const Color(0xFF6A11CB),
+                              ),
+                              const SizedBox(height: 6),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  time,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: isUnavailable
+                                        ? Colors.grey
+                                        : isSelected
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isBooked
+                                    ? 'Booked'
+                                    : isPast
+                                    ? 'Expired'
+                                    : isSelected
+                                    ? 'Selected'
+                                    : 'Available',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isUnavailable
+                                      ? Colors.grey
+                                      : isSelected
+                                      ? Colors.white
+                                      : Colors.green,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
-                }).toList(),
+                },
               ),
-
             const SizedBox(height: 30),
-
-            // ======================================================
-            // BOOKING SUMMARY
-            // ======================================================
             if (selectedTime.isNotEmpty)
               Container(
                 width: double.infinity,
@@ -1212,25 +1050,19 @@ class _BookingScreenState extends State<BookingScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-
                     const SizedBox(height: 15),
-
                     _summaryRow(
                       Icons.person_outline_rounded,
                       'Designer',
                       getDesignerName(),
                     ),
-
                     const SizedBox(height: 10),
-
                     _summaryRow(
                       Icons.calendar_today_rounded,
                       'Date',
                       formatDate(selectedDate),
                     ),
-
                     const SizedBox(height: 10),
-
                     _summaryRow(
                       Icons.access_time_rounded,
                       'Time',
@@ -1239,12 +1071,7 @@ class _BookingScreenState extends State<BookingScreen> {
                   ],
                 ),
               ),
-
             const SizedBox(height: 30),
-
-            // ======================================================
-            // CONFIRM BOOKING
-            // ======================================================
             SizedBox(
               width: double.infinity,
               height: 60,
@@ -1285,9 +1112,7 @@ class _BookingScreenState extends State<BookingScreen> {
                       ),
               ),
             ),
-
             const SizedBox(height: 15),
-
             Center(
               child: Text(
                 'You can change the date or time before confirming.',
@@ -1295,38 +1120,10 @@ class _BookingScreenState extends State<BookingScreen> {
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ),
-
             const SizedBox(height: 25),
           ],
         ),
       ),
-    );
-  }
-
-  // ============================================================
-  // SUMMARY ROW
-  // ============================================================
-
-  Widget _summaryRow(IconData icon, String title, String value) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: const Color(0xFF6A11CB)),
-
-        const SizedBox(width: 10),
-
-        Text('$title:', style: TextStyle(color: Colors.grey.shade600)),
-
-        const SizedBox(width: 6),
-
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-      ],
     );
   }
 }
